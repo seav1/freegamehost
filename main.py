@@ -50,7 +50,7 @@ def safe_goto(page, url, wait_until="domcontentloaded", timeout=90000):
             return False
     return False
 
-def add_server_time(server_url="https://panel.freegamehost.xyz/server/d6432a47"):
+def add_server_time(server_url="https://panel.freegamehost.xyz/server/0bb0b9d6"):
     """
     尝试登录 panel.freegamehost.xyz 并点击 "ADD 8 HOUR(S)" 按钮。
     优先使用 REMEMBER_WEB_COOKIE 进行会话登录，如果不存在则回退到邮箱密码登录。
