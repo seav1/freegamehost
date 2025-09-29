@@ -2,7 +2,7 @@ name: Extend Server Time
 
 on:
   schedule:
-    # 每天 UTC 时间 00:00 运行一次 (例如，北京时间早上 8 点)
+    # 每7小时运行一次
     # 你可以根据需要调整这个时间
     - cron: '0 */7 * * *'
   workflow_dispatch: # 允许手动触发 workflow
