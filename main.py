@@ -2,6 +2,26 @@ import os
 import time
 from playwright.sync_api import sync_playwright, Cookie
 
+def handle_consent_popup(page, timeout=10000):
+    """
+    处理 Cookie 同意弹窗
+    """
+    try:
+        # 等待同意按钮出现
+        consent_button_selector = 'button.fc-cta-consent.fc-primary-button'
+        print("检查是否有 Cookie 同意弹窗...")
+        
+        # 使用较短的超时时间，因为弹窗可能不会出现
+        page.wait_for_selector(consent_button_selector, state='visible', timeout=timeout)
+        print("发现 Cookie 同意弹窗，正在点击'同意'按钮...")
+        page.click(consent_button_selector)
+        print("已点击'同意'按钮。")
+        time.sleep(2)  # 等待弹窗关闭
+        return True
+    except Exception as e:
+        print(f"未发现 Cookie 同意弹窗或已处理过: {e}")
+        return False
+
 def add_server_time(server_url="https://panel.freegamehost.xyz/server/d09ba3f7"):
     """
     尝试登录 gamepanel2.gtxgaming.co.uk 并点击 "ADD 8 HOUR(S)" 按钮。
@@ -41,6 +61,9 @@ def add_server_time(server_url="https://panel.freegamehost.xyz/server/d09ba3f7")
                 
                 # 增加 goto 的超时时间以应对网络或服务器响应慢的问题
                 page.goto(server_url, wait_until="networkidle", timeout=60000)
+                
+                # 处理可能出现的 Cookie 同意弹窗
+                handle_consent_popup(page)
 
                 # 检查是否成功登录并停留在服务器页面，如果重定向到登录页则会话无效
                 if "login" in page.url or "auth" in page.url:
@@ -62,6 +85,9 @@ def add_server_time(server_url="https://panel.freegamehost.xyz/server/d09ba3f7")
                 login_url = "https://panel.freegamehost.xyz/auth/login" # 确认登录页 URL
                 print(f"正在访问登录页: {login_url}")
                 page.goto(login_url, wait_until="networkidle", timeout=60000)
+                
+                # 处理 Cookie 同意弹窗（在登录页面）
+                handle_consent_popup(page)
 
                 # 登录表单元素选择器
                 email_selector = 'input[name="email"]'
@@ -100,6 +126,10 @@ def add_server_time(server_url="https://panel.freegamehost.xyz/server/d09ba3f7")
             if page.url != server_url:
                 print(f"当前不在目标服务器页面，导航到: {server_url}")
                 page.goto(server_url, wait_until="networkidle", timeout=60000)
+                
+                # 再次处理可能出现的弹窗
+                handle_consent_popup(page)
+                
                 if page.url != server_url and ("login" in page.url or "auth" in page.url):
                     print("导航到服务器页面失败，可能需要重新登录或会话已过期。")
                     page.screenshot(path="server_page_nav_fail.png")
