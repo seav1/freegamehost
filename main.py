@@ -52,9 +52,8 @@ def safe_goto(page, url, wait_until="domcontentloaded", timeout=90000):
 
 def add_server_time(server_url="https://panel.freegamehost.xyz/server/0bb0b9d6"):
     """
-    尝试登录 panel.freegamehost.xyz 并点击 "ADD 8 HOUR(S)" 按钮。
+    尝试登录 panel.freegamehost.xyz 并点击 "+ ADD 8 HOURS" 按钮。
     优先使用 REMEMBER_WEB_COOKIE 进行会话登录，如果不存在则回退到邮箱密码登录。
-    如果找不到按钮，说明服务器不需要续期，也视为成功。
     """
     # 获取环境变量
     remember_web_cookie = os.environ.get('REMEMBER_WEB_COOKIE')
@@ -182,42 +181,37 @@ def add_server_time(server_url="https://panel.freegamehost.xyz/server/0bb0b9d6")
             print(f"当前页面URL: {page.url}")
             time.sleep(2)  # 等待页面完全加载
 
-            # --- 查找并点击 "ADD 8 HOUR(S)" 按钮 ---
-            add_button_selector = 'button:has-text("ADD 8 HOUR(S)")'
-            print(f"正在查找 'ADD 8 HOUR(S)' 按钮...")
+            # --- 查找并点击 "+ ADD 8 HOURS" 按钮 ---
+            add_button_selector = 'button:has-text("+ ADD 8 HOURS")'
+            print(f"正在查找 '+ ADD 8 HOURS' 按钮...")
 
             try:
                 page.wait_for_selector(add_button_selector, state='visible', timeout=30000)
                 print("找到按钮，正在点击...")
                 page.click(add_button_selector)
-                print("✓ 成功点击 'ADD 8 HOUR(S)' 按钮，服务器时间已延长。")
+                print("成功点击 '+ ADD 8 HOURS' 按钮。")
                 time.sleep(5)
+                print("任务完成。")
                 return True
             except Exception as e:
-                print(f"未找到 'ADD 8 HOUR(S)' 按钮: {e}")
+                print(f"未找到 '+ ADD 8 HOURS' 按钮或点击失败: {e}")
+                page.screenshot(path="extend_button_not_found.png")
                 
-                # 检查是否是因为服务器不需要续期
-                print("检查页面状态...")
-                
-                # 尝试查找服务器状态相关信息
+                # 尝试打印页面上所有按钮文本，帮助调试
                 try:
-                    # 检查是否已经在正确的服务器页面
-                    if "server/" in page.url:
-                        print("✓ 已成功访问服务器页面，但未找到续期按钮。")
-                        print("结论: 服务器当前不需要续期，这是正常情况。")
-                        
-                        # 可选: 截图以便后续检查
-                        page.screenshot(path="no_renewal_needed.png")
-                        
-                        return True  # 视为成功
-                    else:
-                        print("页面URL不正确，可能未成功导航到服务器页面。")
-                        page.screenshot(path="wrong_page.png")
-                        return False
-                except Exception as check_error:
-                    print(f"检查页面状态时出错: {check_error}")
-                    page.screenshot(path="status_check_error.png")
-                    return False
+                    buttons = page.query_selector_all('button')
+                    print(f"页面上找到 {len(buttons)} 个按钮:")
+                    for i, btn in enumerate(buttons[:10]):  # 只打印前10个
+                        try:
+                            text = btn.inner_text().strip()
+                            if text:
+                                print(f"  按钮 {i+1}: {text}")
+                        except:
+                            pass
+                except:
+                    pass
+                
+                return False
 
         except Exception as e:
             print(f"执行过程中发生未知错误: {e}")
@@ -233,8 +227,8 @@ if __name__ == "__main__":
     print("开始执行添加服务器时间任务...")
     success = add_server_time()
     if success:
-        print("✓ 任务执行成功。")
+        print("任务执行成功。")
         exit(0)
     else:
-        print("✗ 任务执行失败。")
+        print("任务执行失败。")
         exit(1)
