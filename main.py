@@ -1,5 +1,7 @@
 import os
 import time
+import base64
+import requests
 from playwright.sync_api import sync_playwright, Cookie, TimeoutError as PlaywrightTimeoutError
 
 def handle_consent_popup(page, timeout=10000):
@@ -49,6 +51,79 @@ def safe_goto(page, url, wait_until="domcontentloaded", timeout=90000):
             print(f"页面导航出错: {e}")
             return False
     return False
+
+def update_github_secret(cookie_value):
+    """
+    使用 GitHub API 更新 REMEMBER_WEB_COOKIE 密钥
+    """
+    gh_pat = os.environ.get('GH_PAT')
+    if not gh_pat:
+        print("未设置 GH_PAT 环境变量，跳过更新 GitHub 密钥")
+        return False
+
+    # 从环境变量获取仓库信息
+    repo_owner = os.environ.get('GITHUB_REPOSITORY_OWNER')
+    repo_name = os.environ.get('GITHUB_REPOSITORY')
+    if not repo_owner or not repo_name:
+        # 如果环境变量不存在，尝试从 GITHUB_REPOSITORY 解析
+        github_repo = os.environ.get('GITHUB_REPOSITORY')
+        if github_repo:
+            repo_owner, repo_name = github_repo.split('/', 1)
+        else:
+            print("无法获取仓库信息，跳过更新 GitHub 密钥")
+            return False
+
+    try:
+        import nacl.encoding
+        import nacl.public
+    except ImportError:
+        print("需要安装 PyNaCl 库来加密密钥: pip install pynacl")
+        return False
+
+    try:
+        # 首先获取仓库的公钥
+        public_key_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/actions/secrets/public-key"
+        headers = {
+            'Authorization': f'Bearer {gh_pat}',
+            'Accept': 'application/vnd.github.v3+json'
+        }
+
+        print("正在获取 GitHub 仓库公钥...")
+        response = requests.get(public_key_url, headers=headers)
+        if response.status_code != 200:
+            print(f"获取公钥失败: HTTP {response.status_code} - {response.text}")
+            return False
+
+        key_data = response.json()
+        public_key = key_data['key']
+        key_id = key_data['key_id']
+
+        # 使用公钥加密 cookie 值
+        public_key_obj = nacl.public.PublicKey(base64.b64decode(public_key))
+        sealed_box = nacl.public.SealedBox(public_key_obj)
+        encrypted = sealed_box.encrypt(cookie_value.encode())
+        encrypted_value = base64.b64encode(encrypted).decode()
+
+        # 更新密钥
+        secret_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/actions/secrets/REMEMBER_WEB_COOKIE"
+        data = {
+            'encrypted_value': encrypted_value,
+            'key_id': key_id
+        }
+
+        print("正在更新 GitHub 密钥 REMEMBER_WEB_COOKIE...")
+        response = requests.put(secret_url, headers=headers, json=data)
+
+        if response.status_code == 201 or response.status_code == 204:
+            print("成功更新 GitHub 密钥 REMEMBER_WEB_COOKIE")
+            return True
+        else:
+            print(f"更新 GitHub 密钥失败: HTTP {response.status_code} - {response.text}")
+            return False
+
+    except Exception as e:
+        print(f"更新 GitHub 密钥时发生错误: {e}")
+        return False
 
 def add_server_time(server_url="https://panel.freegamehost.xyz/server/0bb0b9d6"):
     """
@@ -112,6 +187,23 @@ def add_server_time(server_url="https://panel.freegamehost.xyz/server/0bb0b9d6")
                     else:
                         print("REMEMBER_WEB_COOKIE 登录成功。")
 
+                        # 登录成功后，更新 GitHub 密钥
+                        try:
+                            current_cookies = context.cookies()
+                            remember_cookie = None
+                            for cookie in current_cookies:
+                                if cookie['name'] == 'remember_web_59ba36addc2b2f9401580f014c7f58ea4e30989d':
+                                    remember_cookie = cookie['value']
+                                    break
+
+                            if remember_cookie:
+                                print("找到 remember_web cookie，正在更新 GitHub 密钥...")
+                                update_github_secret(remember_cookie)
+                            else:
+                                print("未找到 remember_web cookie，跳过更新")
+                        except Exception as e:
+                            print(f"更新 GitHub 密钥失败: {e}")
+
             # --- 如果 REMEMBER_WEB_COOKIE 不可用或失败，则回退到邮箱密码登录 ---
             if not remember_web_cookie:
                 if not (login_email and login_password):
@@ -166,6 +258,24 @@ def add_server_time(server_url="https://panel.freegamehost.xyz/server/0bb0b9d6")
                         return False
                     else:
                         print("邮箱密码登录成功。")
+
+                        # 登录成功后，更新 GitHub 密钥
+                        try:
+                            current_cookies = context.cookies()
+                            remember_cookie = None
+                            for cookie in current_cookies:
+                                if cookie['name'] == 'remember_web_59ba36addc2b2f9401580f014c7f58ea4e30989d':
+                                    remember_cookie = cookie['value']
+                                    break
+
+                            if remember_cookie:
+                                print("找到 remember_web cookie，正在更新 GitHub 密钥...")
+                                update_github_secret(remember_cookie)
+                            else:
+                                print("未找到 remember_web cookie，跳过更新")
+                        except Exception as e:
+                            print(f"更新 GitHub 密钥失败: {e}")
+
                         # 导航到服务器页面
                         if page.url != server_url:
                             print(f"正在导航到服务器页面: {server_url}")
@@ -194,9 +304,9 @@ def add_server_time(server_url="https://panel.freegamehost.xyz/server/0bb0b9d6")
                 print("任务完成。")
                 return True
             except Exception as e:
-                print(f"未找到 'ADD 8 HOURS' 按钮或点击失败: {e}")
+                print(f"未找到 'ADD 8 HOURS' 按钮，说明当前不需要续期")
                 page.screenshot(path="extend_button_not_found.png")
-                
+
                 # 尝试打印页面上所有按钮文本，帮助调试
                 try:
                     buttons = page.query_selector_all('button')
@@ -210,8 +320,10 @@ def add_server_time(server_url="https://panel.freegamehost.xyz/server/0bb0b9d6")
                             pass
                 except:
                     pass
-                
-                return False
+
+                # 不需要续期，任务仍算成功
+                print("无需续期，任务完成。")
+                return True
 
         except Exception as e:
             print(f"执行过程中发生未知错误: {e}")
