@@ -62,16 +62,15 @@ def update_github_secret(cookie_value):
         return False
 
     # 从环境变量获取仓库信息
-    repo_owner = os.environ.get('GITHUB_REPOSITORY_OWNER')
-    repo_name = os.environ.get('GITHUB_REPOSITORY')
-    if not repo_owner or not repo_name:
-        # 如果环境变量不存在，尝试从 GITHUB_REPOSITORY 解析
-        github_repo = os.environ.get('GITHUB_REPOSITORY')
-        if github_repo:
-            repo_owner, repo_name = github_repo.split('/', 1)
-        else:
-            print("无法获取仓库信息，跳过更新 GitHub 密钥")
-            return False
+    github_repo = os.environ.get('GITHUB_REPOSITORY')
+    if not github_repo:
+        print("无法获取 GITHUB_REPOSITORY 环境变量，跳过更新 GitHub 密钥")
+        return False
+
+    try:
+        repo_owner, repo_name = github_repo.split('/', 1)
+    except ValueError:
+        return False
 
     try:
         import nacl.encoding
@@ -81,17 +80,17 @@ def update_github_secret(cookie_value):
         return False
 
     try:
-        # 首先获取仓库的公钥
+
+        # 获取仓库的公钥
         public_key_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/actions/secrets/public-key"
         headers = {
             'Authorization': f'Bearer {gh_pat}',
             'Accept': 'application/vnd.github.v3+json'
         }
 
-        print("正在获取 GitHub 仓库公钥...")
         response = requests.get(public_key_url, headers=headers)
         if response.status_code != 200:
-            print(f"获取公钥失败: HTTP {response.status_code} - {response.text}")
+            print(f"获取GitHub公钥失败: HTTP {response.status_code}")
             return False
 
         key_data = response.json()
