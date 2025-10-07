@@ -1,22 +1,76 @@
 import os
 import time
+import requests
+import base64
 from playwright.sync_api import sync_playwright, Cookie, TimeoutError as PlaywrightTimeoutError
+
+def update_github_secret(secret_name, secret_value, repo_owner, repo_name, gh_pat):
+    """
+    使用 GitHub API 更新 Repository Secret
+    """
+    try:
+        print(f"正在更新 GitHub Secret: {secret_name}...")
+        
+        # 1. 获取仓库的公钥
+        public_key_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/actions/secrets/public-key"
+        headers = {
+            "Authorization": f"token {gh_pat}",
+            "Accept": "application/vnd.github.v3+json"
+        }
+        
+        response = requests.get(public_key_url, headers=headers)
+        if response.status_code != 200:
+            print(f"获取公钥失败: {response.status_code} - {response.text}")
+            return False
+        
+        public_key_data = response.json()
+        public_key = public_key_data['key']
+        key_id = public_key_data['key_id']
+        
+        # 2. 使用 PyNaCl 加密 secret 值
+        try:
+            from nacl import encoding, public as nacl_public
+        except ImportError:
+            print("错误: 需要安装 PyNaCl 库。请运行: pip install PyNaCl")
+            return False
+        
+        public_key_obj = nacl_public.PublicKey(public_key.encode("utf-8"), encoding.Base64Encoder())
+        sealed_box = nacl_public.SealedBox(public_key_obj)
+        encrypted = sealed_box.encrypt(secret_value.encode("utf-8"))
+        encrypted_value = base64.b64encode(encrypted).decode("utf-8")
+        
+        # 3. 更新 secret
+        update_secret_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/actions/secrets/{secret_name}"
+        payload = {
+            "encrypted_value": encrypted_value,
+            "key_id": key_id
+        }
+        
+        response = requests.put(update_secret_url, json=payload, headers=headers)
+        if response.status_code in [201, 204]:
+            print(f"成功更新 GitHub Secret: {secret_name}")
+            return True
+        else:
+            print(f"更新 Secret 失败: {response.status_code} - {response.text}")
+            return False
+            
+    except Exception as e:
+        print(f"更新 GitHub Secret 时出错: {e}")
+        return False
 
 def handle_consent_popup(page, timeout=10000):
     """
     处理 Cookie 同意弹窗
     """
     try:
-        # 等待同意按钮出现
         consent_button_selector = 'button.fc-cta-consent.fc-primary-button'
         print("检查是否有 Cookie 同意弹窗...")
         
-        # 使用较短的超时时间，因为弹窗可能不会出现
         page.wait_for_selector(consent_button_selector, state='visible', timeout=timeout)
         print("发现 Cookie 同意弹窗，正在点击'同意'按钮...")
         page.click(consent_button_selector)
         print("已点击'同意'按钮。")
-        time.sleep(2)  # 等待弹窗关闭
+        time.sleep(2)
         return True
     except Exception as e:
         print(f"未发现 Cookie 同意弹窗或已处理过")
@@ -33,7 +87,6 @@ def safe_goto(page, url, wait_until="domcontentloaded", timeout=90000):
             page.goto(url, wait_until=wait_until, timeout=timeout)
             print(f"页面加载成功: {page.url}")
             
-            # 处理可能出现的 Cookie 同意弹窗
             handle_consent_popup(page, timeout=5000)
             
             return True
@@ -54,32 +107,44 @@ def add_server_time(server_url="https://panel.freegamehost.xyz/server/0bb0b9d6")
     """
     尝试登录 panel.freegamehost.xyz 并点击 "ADD 8 HOURS" 按钮。
     优先使用 REMEMBER_WEB_COOKIE 进行会话登录，如果不存在则回退到邮箱密码登录。
+    登录成功后自动更新 GitHub Secret 中的 REMEMBER_WEB_COOKIE。
     """
     # 获取环境变量
     remember_web_cookie = os.environ.get('REMEMBER_WEB_COOKIE')
     login_email = os.environ.get('LOGIN_EMAIL')
     login_password = os.environ.get('LOGIN_PASSWORD')
+    gh_pat = os.environ.get('GH_PAT')
+    github_repository = os.environ.get('GITHUB_REPOSITORY')  # 格式: owner/repo
 
     # 检查是否提供了任何登录凭据
     if not (remember_web_cookie or (login_email and login_password)):
         print("错误: 缺少登录凭据。请设置 REMEMBER_WEB_COOKIE 或 LOGIN_EMAIL 和 LOGIN_PASSWORD 环境变量。")
         return False
 
+    # 解析仓库信息
+    repo_owner = None
+    repo_name = None
+    if gh_pat and github_repository:
+        try:
+            repo_owner, repo_name = github_repository.split('/')
+            print(f"检测到 GitHub 仓库: {repo_owner}/{repo_name}")
+        except:
+            print("警告: 无法解析 GITHUB_REPOSITORY，Cookie 自动更新功能将被禁用")
+
     with sync_playwright() as p:
-        # 在 GitHub Actions 中，通常使用 headless 模式
-        # 添加更多浏览器参数以提高稳定性
         browser = p.chromium.launch(
             headless=True,
             args=['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
         )
         
-        # 设置更长的默认超时
         context = browser.new_context(
             viewport={'width': 1920, 'height': 1080},
             user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         )
         page = context.new_page()
-        page.set_default_timeout(60000)  # 设置默认超时为 60 秒
+        page.set_default_timeout(60000)
+
+        cookie_updated = False
 
         try:
             # --- 尝试通过 REMEMBER_WEB_COOKIE 会话登录 ---
@@ -98,13 +163,11 @@ def add_server_time(server_url="https://panel.freegamehost.xyz/server/0bb0b9d6")
                 context.add_cookies([session_cookie])
                 print(f"已设置 REMEMBER_WEB_COOKIE。正在访问服务器页面: {server_url}")
                 
-                # 使用 safe_goto 代替直接 goto，使用 domcontentloaded 而非 networkidle
                 if not safe_goto(page, server_url, wait_until="domcontentloaded"):
                     print("使用 REMEMBER_WEB_COOKIE 访问服务器页面失败。")
                     remember_web_cookie = None
                 else:
-                    # 检查是否成功登录并停留在服务器页面
-                    time.sleep(3)  # 等待页面稳定
+                    time.sleep(3)
                     if "login" in page.url or "auth" in page.url:
                         print("使用 REMEMBER_WEB_COOKIE 登录失败或会话无效。将尝试使用邮箱密码登录。")
                         context.clear_cookies()
@@ -126,7 +189,6 @@ def add_server_time(server_url="https://panel.freegamehost.xyz/server/0bb0b9d6")
                     page.screenshot(path="login_page_load_fail.png")
                     return False
 
-                # 登录表单元素选择器
                 email_selector = 'input[name="email"]'
                 password_selector = 'input[name="password"]'
                 login_button_selector = 'button[type="submit"]'
@@ -149,11 +211,9 @@ def add_server_time(server_url="https://panel.freegamehost.xyz/server/0bb0b9d6")
                 page.click(login_button_selector)
 
                 try:
-                    # 等待导航完成
                     page.wait_for_load_state("domcontentloaded", timeout=60000)
-                    time.sleep(3)  # 等待页面稳定
+                    time.sleep(3)
                     
-                    # 检查是否登录成功
                     if "login" in page.url or "auth" in page.url:
                         error_message_selector = '.alert.alert-danger, .error-message, .form-error'
                         error_element = page.query_selector(error_message_selector)
@@ -166,6 +226,23 @@ def add_server_time(server_url="https://panel.freegamehost.xyz/server/0bb0b9d6")
                         return False
                     else:
                         print("邮箱密码登录成功。")
+                        
+                        # 提取新的 remember_web cookie
+                        cookies = context.cookies()
+                        for cookie in cookies:
+                            if cookie['name'] == 'remember_web_59ba36addc2b2f9401580f014c7f58ea4e30989d':
+                                new_cookie_value = cookie['value']
+                                print(f"提取到新的 REMEMBER_WEB_COOKIE (前20字符): {new_cookie_value[:20]}...")
+                                
+                                # 如果配置了 GH_PAT，则更新 GitHub Secret
+                                if gh_pat and repo_owner and repo_name:
+                                    if update_github_secret('REMEMBER_WEB_COOKIE', new_cookie_value, 
+                                                          repo_owner, repo_name, gh_pat):
+                                        cookie_updated = True
+                                else:
+                                    print("未配置 GH_PAT 或仓库信息，跳过 Cookie 自动更新")
+                                break
+                        
                         # 导航到服务器页面
                         if page.url != server_url:
                             print(f"正在导航到服务器页面: {server_url}")
@@ -179,7 +256,7 @@ def add_server_time(server_url="https://panel.freegamehost.xyz/server/0bb0b9d6")
 
             # --- 确保当前页面是目标服务器页面 ---
             print(f"当前页面URL: {page.url}")
-            time.sleep(2)  # 等待页面完全加载
+            time.sleep(2)
 
             # --- 查找并点击 "ADD 8 HOURS" 按钮 ---
             add_button_selector = 'button:has-text("ADD 8 HOURS")'
@@ -191,17 +268,20 @@ def add_server_time(server_url="https://panel.freegamehost.xyz/server/0bb0b9d6")
                 page.click(add_button_selector)
                 print("成功点击 'ADD 8 HOURS' 按钮。")
                 time.sleep(5)
-                print("任务完成。")
+                
+                if cookie_updated:
+                    print("✅ 任务完成，Cookie 已自动更新到 GitHub Secrets。")
+                else:
+                    print("✅ 任务完成。")
                 return True
             except Exception as e:
                 print(f"未找到 'ADD 8 HOURS' 按钮或点击失败: {e}")
                 page.screenshot(path="extend_button_not_found.png")
                 
-                # 尝试打印页面上所有按钮文本，帮助调试
                 try:
                     buttons = page.query_selector_all('button')
                     print(f"页面上找到 {len(buttons)} 个按钮:")
-                    for i, btn in enumerate(buttons[:10]):  # 只打印前10个
+                    for i, btn in enumerate(buttons[:10]):
                         try:
                             text = btn.inner_text().strip()
                             if text:
