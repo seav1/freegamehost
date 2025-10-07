@@ -1,62 +1,6 @@
 import os
 import time
-import requests
-import base64
 from playwright.sync_api import sync_playwright, Cookie, TimeoutError as PlaywrightTimeoutError
-
-def update_github_secret(secret_name, secret_value, repo_owner, repo_name, gh_pat):
-    """
-    使用 GitHub API 更新 Repository Secret
-    """
-    try:
-        print(f"正在更新 GitHub Secret: {secret_name}...")
-        
-        # 1. 获取仓库的公钥
-        public_key_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/actions/secrets/public-key"
-        headers = {
-            "Authorization": f"token {gh_pat}",
-            "Accept": "application/vnd.github.v3+json"
-        }
-        
-        response = requests.get(public_key_url, headers=headers)
-        if response.status_code != 200:
-            print(f"获取公钥失败: {response.status_code} - {response.text}")
-            return False
-        
-        public_key_data = response.json()
-        public_key = public_key_data['key']
-        key_id = public_key_data['key_id']
-        
-        # 2. 使用 PyNaCl 加密 secret 值
-        try:
-            from nacl import encoding, public as nacl_public
-        except ImportError:
-            print("错误: 需要安装 PyNaCl 库。请运行: pip install PyNaCl")
-            return False
-        
-        public_key_obj = nacl_public.PublicKey(public_key.encode("utf-8"), encoding.Base64Encoder())
-        sealed_box = nacl_public.SealedBox(public_key_obj)
-        encrypted = sealed_box.encrypt(secret_value.encode("utf-8"))
-        encrypted_value = base64.b64encode(encrypted).decode("utf-8")
-        
-        # 3. 更新 secret
-        update_secret_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/actions/secrets/{secret_name}"
-        payload = {
-            "encrypted_value": encrypted_value,
-            "key_id": key_id
-        }
-        
-        response = requests.put(update_secret_url, json=payload, headers=headers)
-        if response.status_code in [201, 204]:
-            print(f"成功更新 GitHub Secret: {secret_name}")
-            return True
-        else:
-            print(f"更新 Secret 失败: {response.status_code} - {response.text}")
-            return False
-            
-    except Exception as e:
-        print(f"更新 GitHub Secret 时出错: {e}")
-        return False
 
 def handle_consent_popup(page, timeout=10000):
     """
@@ -115,23 +59,11 @@ def add_server_time(server_url="https://panel.freegamehost.xyz/server/0bb0b9d6")
     remember_web_cookie = os.environ.get('REMEMBER_WEB_COOKIE')
     login_email = os.environ.get('LOGIN_EMAIL')
     login_password = os.environ.get('LOGIN_PASSWORD')
-    gh_pat = os.environ.get('GH_PAT')
-    github_repository = os.environ.get('GITHUB_REPOSITORY')  # 格式: owner/repo
 
     # 检查是否提供了任何登录凭据
     if not (remember_web_cookie or (login_email and login_password)):
         print("错误: 缺少登录凭据。请设置 REMEMBER_WEB_COOKIE 或 LOGIN_EMAIL 和 LOGIN_PASSWORD 环境变量。")
         return False
-
-    # 解析仓库信息
-    repo_owner = None
-    repo_name = None
-    if gh_pat and github_repository:
-        try:
-            repo_owner, repo_name = github_repository.split('/')
-            print(f"检测到 GitHub 仓库: {repo_owner}/{repo_name}")
-        except:
-            print("警告: 无法解析 GITHUB_REPOSITORY，Cookie 自动更新功能将被禁用")
 
     with sync_playwright() as p:
         # 在 GitHub Actions 中，通常使用 headless 模式
@@ -234,23 +166,6 @@ def add_server_time(server_url="https://panel.freegamehost.xyz/server/0bb0b9d6")
                         return False
                     else:
                         print("邮箱密码登录成功。")
-                        
-                        # ===== 新增：提取并更新 Cookie =====
-                        cookies = context.cookies()
-                        for cookie in cookies:
-                            if cookie['name'] == 'remember_web_59ba36addc2b2f9401580f014c7f58ea4e30989d':
-                                new_cookie_value = cookie['value']
-                                print(f"提取到新的 REMEMBER_WEB_COOKIE (前20字符): {new_cookie_value[:20]}...")
-                                
-                                # 如果配置了 GH_PAT，则更新 GitHub Secret
-                                if gh_pat and repo_owner and repo_name:
-                                    update_github_secret('REMEMBER_WEB_COOKIE', new_cookie_value, 
-                                                       repo_owner, repo_name, gh_pat)
-                                else:
-                                    print("未配置 GH_PAT 或仓库信息，跳过 Cookie 自动更新")
-                                break
-                        # ===== Cookie 更新部分结束 =====
-                        
                         # 导航到服务器页面
                         if page.url != server_url:
                             print(f"正在导航到服务器页面: {server_url}")
