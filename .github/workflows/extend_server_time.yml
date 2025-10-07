@@ -3,7 +3,6 @@ name: Extend Server Time
 on:
   schedule:
     # 每6小时运行一次
-    # 你可以根据需要调整这个时间
     - cron: '0 */6 * * *'
   workflow_dispatch: # 允许手动触发 workflow
 
@@ -12,49 +11,52 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-
+    
     steps:
     - name: Check out repository
       uses: actions/checkout@v3
-
+    
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
-        python-version: '3.x' # 使用最新的 Python 3 版本
-        
-    - name: Install Playwright
+        python-version: '3.x'
+    
+    - name: Install dependencies
       run: |
-        pip install playwright
-        playwright install chromium # 安装 Chromium 浏览器
-
+        pip install playwright requests PyNaCl
+        playwright install chromium
+    
     - name: Run Python script
       env:
-        # 确保在 GitHub Secrets 中设置这些变量
+        # 登录凭据
         REMEMBER_WEB_COOKIE: ${{ secrets.REMEMBER_WEB_COOKIE }}
         LOGIN_EMAIL: ${{ secrets.LOGIN_EMAIL }}
         LOGIN_PASSWORD: ${{ secrets.LOGIN_PASSWORD }}
+        # GitHub PAT 用于更新 Secrets
+        GH_PAT: ${{ secrets.GH_PAT }}
+        GITHUB_REPOSITORY: ${{ github.repository }}
       run: python main.py
-
+    
     - name: Commit time.txt to repo
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         git config user.name "github-actions[bot]"
         git config user.email "github-actions[bot]@users.noreply.github.com"
-
-        # 如果 time.txt 不存在，说明是第一次运行
+        
+        # 生成时间戳
         if [ ! -f time.txt ]; then
           echo "首次生成时间：$(date +'%Y-%m-%d %H:%M:%S')" > time.txt
         else
           echo "$(date +'%Y-%m-%d %H:%M:%S')" > time.txt
         fi
-
+        
         git add time.txt
-
+        
         # 如果有更改再提交
         if git diff --cached --quiet; then
           echo "无变化，无需提交"
         else
-          git commit -m "?? 更新时间文件: $(date +'%Y-%m-%d %H:%M:%S')"
+          git commit -m "🔄 更新时间文件: $(date +'%Y-%m-%d %H:%M:%S')"
           git push origin HEAD:main
         fi
