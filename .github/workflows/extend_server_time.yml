@@ -12,6 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      actions: write  # 需要权限来更新 secrets
 
     steps:
     - name: Check out repository
@@ -22,9 +23,9 @@ jobs:
       with:
         python-version: '3.x' # 使用最新的 Python 3 版本
         
-    - name: Install Playwright
+    - name: Install dependencies
       run: |
-        pip install playwright
+        pip install playwright pynacl requests
         playwright install chromium # 安装 Chromium 浏览器
     - name: Run Python script
       env:
@@ -32,6 +33,7 @@ jobs:
         REMEMBER_WEB_COOKIE: ${{ secrets.REMEMBER_WEB_COOKIE }}
         LOGIN_EMAIL: ${{ secrets.LOGIN_EMAIL }}
         LOGIN_PASSWORD: ${{ secrets.LOGIN_PASSWORD }}
+        GH_PAT: ${{ secrets.GH_PAT }}
       run: python main.py
 
     - name: Commit time.txt to repo
