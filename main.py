@@ -126,7 +126,7 @@ def update_github_secret(cookie_value):
 
 def add_server_time(server_url="https://panel.freegamehost.xyz/server/45ae3c41"):
     """
-    尝试登录 panel.freegamehost.xyz 并点击 "ADD +6H" 按钮。
+    尝试登录 panel.freegamehost.xyz 并点击 "ADDS +6H" 按钮。
     优先使用 REMEMBER_WEB_COOKIE 进行会话登录，如果不存在则回退到邮箱密码登录。
     """
     # 获取环境变量
@@ -290,20 +290,20 @@ def add_server_time(server_url="https://panel.freegamehost.xyz/server/45ae3c41")
             print(f"当前页面URL: {page.url}")
             time.sleep(2)  # 等待页面完全加载
 
-            # --- 查找并点击 "ADD +6H" 按钮 ---
-            add_button_selector = 'button:has-text("ADD +6H")'
-            print(f"正在查找 'ADD +6H' 按钮...")
+            # --- 查找并点击 "ADDS +6H" 按钮 ---
+            add_button_selector = 'button:has-text("ADDS +6H")'
+            print(f"正在查找 'ADDS +6H' 按钮...")
 
             try:
                 page.wait_for_selector(add_button_selector, state='visible', timeout=30000)
                 print("找到按钮，正在点击...")
                 page.click(add_button_selector)
-                print("成功点击 'ADD +6H' 按钮。")
+                print("成功点击 'ADDS +6H' 按钮。")
                 time.sleep(5)
                 print("任务完成。")
                 return True
             except Exception as e:
-                print(f"未找到 'ADD +6H' 按钮，说明当前不需要续期")
+                print(f"未找到 'ADDS +6H' 按钮，说明当前不需要续期")
                 page.screenshot(path="extend_button_not_found.png")
 
                 # 尝试打印页面上所有按钮文本，帮助调试
