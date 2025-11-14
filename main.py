@@ -124,7 +124,7 @@ def update_github_secret(cookie_value):
         print(f"更新 GitHub 密钥时发生错误: {e}")
         return False
 
-def add_server_time(server_url="https://panel.freegamehost.xyz/server/46f73a2a"):
+def add_server_time(server_url="https://panel.freegamehost.xyz/server/948b2d4f"):
     """
     尝试登录 panel.freegamehost.xyz 并点击 "ADD +6H" 按钮。
     优先使用 REMEMBER_WEB_COOKIE 进行会话登录，如果不存在则回退到邮箱密码登录。
